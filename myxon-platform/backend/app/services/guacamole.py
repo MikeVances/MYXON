@@ -106,9 +106,10 @@ def create_guacamole_connection(
             "swap-red-blue": "false",
         })
     elif protocol == "http":
-        # For HTTP web access, we generate a direct proxy URL
-        # rather than going through guacd
-        access_url = f"/tunnel/{device_serial}/{resource_id}/"
+        # Прямой доступ к контроллеру через порт FRPS-тоннеля.
+        # frpc пробрасывает: FRPS:target_port → agent_host:resource_port
+        # Пользователь открывает URL в браузере — всё через тоннель.
+        access_url = f"http://{settings.frps_host}:{guacd_target_port}/"
         return GuacamoleConnection(
             connection_id=connection_id,
             access_url=access_url,
