@@ -53,7 +53,7 @@ async def seed():
         # ── Users ──
         admin = User(
             id=uuid.uuid4(),
-            email="admin@myxon.local",
+            email="admin@myxon.dev",
             hashed_password=hash_password("admin123"),
             full_name="Admin User",
             role="admin",
@@ -61,7 +61,7 @@ async def seed():
         )
         engineer = User(
             id=uuid.uuid4(),
-            email="engineer@myxon.local",
+            email="engineer@myxon.dev",
             hashed_password=hash_password("engineer123"),
             full_name="Field Engineer",
             role="engineer",
@@ -69,7 +69,7 @@ async def seed():
         )
         viewer = User(
             id=uuid.uuid4(),
-            email="viewer@myxon.local",
+            email="viewer@myxon.dev",
             hashed_password=hash_password("viewer123"),
             full_name="Viewer User",
             role="viewer",
@@ -150,9 +150,9 @@ async def seed():
 
         print("✅ Seed data created:")
         print(f"   Tenants:  {vendor.name}, {integrator.name}")
-        print(f"   Users:    admin@myxon.local / admin123")
-        print(f"             engineer@myxon.local / engineer123")
-        print(f"             viewer@myxon.local / viewer123")
+        print(f"   Users:    admin@myxon.dev / admin123")
+        print(f"             engineer@myxon.dev / engineer123")
+        print(f"             viewer@myxon.dev / viewer123")
         print(f"   Site:     {site.name}")
         print(f"   Devices:  {device1.serial_number} (unclaimed, code: {activation_code_1})")
         print(f"             {device2.serial_number} (online, 2 resources)")
