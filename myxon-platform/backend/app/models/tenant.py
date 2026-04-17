@@ -32,5 +32,12 @@ class Tenant(Base, UUIDPrimaryKey, TimestampMixin):
 
     # relationships
     users: Mapped[list["User"]] = relationship(back_populates="tenant", lazy="selectin")
-    devices: Mapped[list["Device"]] = relationship(back_populates="tenant", lazy="selectin")
+    # Device имеет три FK на tenants (tenant_id, dealer_id, partner_id) —
+    # явно указываем foreign_keys чтобы SQLAlchemy не путался.
+    # tenant_id = customer-ownership; dealer_id/partner_id = финансовая цепочка.
+    devices: Mapped[list["Device"]] = relationship(
+        back_populates="tenant",
+        lazy="selectin",
+        foreign_keys="[Device.tenant_id]",
+    )
     sites: Mapped[list["Site"]] = relationship(back_populates="tenant", lazy="selectin")
