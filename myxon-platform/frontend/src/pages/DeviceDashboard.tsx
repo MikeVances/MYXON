@@ -154,6 +154,7 @@ export default function DeviceDashboard() {
   // Policy-derived capability flags (default permissive when no policy)
   const canHmi = policy ? policy.allow_hmi : true
   const canVnc = policy ? policy.allow_vnc : true
+  const canHttp = policy ? policy.allow_http : true
   const canAudit = policy ? policy.allow_audit_view : true
   const canAlarms = policy ? policy.allow_alarms_view : true
 
@@ -260,7 +261,8 @@ export default function DeviceDashboard() {
               <div className="space-y-2">
                 {resources.map((r) => {
                   const isVnc = r.protocol === 'vnc'
-                  const isAllowed = isVnc ? canVnc : canHmi
+                  const isHttp = r.protocol === 'http'
+                  const isAllowed = isVnc ? canVnc : isHttp ? canHttp : canHmi
                   return (
                     <div key={r.id} className="rounded border border-slate-200 p-2">
                       <div className="mb-2 flex items-center justify-between">

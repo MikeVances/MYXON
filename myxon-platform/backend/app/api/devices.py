@@ -362,14 +362,29 @@ async def create_access_session(
     # remote_port is the frps-side port (stored during registration in agent.py).
     # Fallback: if remote_port is missing (older agent), derive from tunnel_port.
     resource_port: int | None = None
+    resource_found: dict | None = None
     if device.published_resources:
         for offset, res in enumerate(device.published_resources):
             if res.get("id") == body.resource_id:
+                resource_found = res
                 # Prefer the explicit remote_port stored at registration time
                 resource_port = res.get("remote_port") or (
                     (device.tunnel_port + offset) if device.tunnel_port else res.get("port")
                 )
                 break
+
+    # Validate that the requested protocol matches the resource's declared protocol.
+    # Prevents e.g. opening a VNC guacamole session on an HTTP-only resource.
+    if resource_found is not None:
+        declared_protocol = resource_found.get("protocol")
+        if declared_protocol and declared_protocol != body.protocol:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Resource '{body.resource_id}' uses protocol '{declared_protocol}', "
+                    f"but '{body.protocol}' was requested"
+                ),
+            )
 
     from app.services.guacamole import create_guacamole_connection
     try:

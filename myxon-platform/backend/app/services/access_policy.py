@@ -49,6 +49,12 @@ _ROLE_DEFAULT_CAPS: dict[str, set[str]] = {
     "customer_admin": {"hmi", "vnc", "alarms", "acknowledge", "audit"},
     "customer_engineer": {"hmi", "alarms", "acknowledge", "audit"},
     "customer_viewer": {"alarms"},
+    # Legacy simple roles (User.role = admin|engineer|viewer|superadmin)
+    # Used in seed data and early deployments before multi-tier naming was adopted.
+    "superadmin": {"hmi", "vnc", "http", "alarms", "acknowledge", "audit"},
+    "admin":      {"hmi", "vnc", "http", "alarms", "acknowledge", "audit"},
+    "engineer":   {"hmi", "vnc", "http", "alarms", "acknowledge"},
+    "viewer":     {"alarms"},
 }
 
 

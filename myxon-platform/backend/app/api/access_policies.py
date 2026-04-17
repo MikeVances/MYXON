@@ -171,6 +171,73 @@ async def create_policy(
     return _policy_to_out(policy)
 
 
+@router.get("/effective", response_model=AccessPolicyOut | None)
+async def get_effective_policy(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    device_id: str | None = None,
+):
+    """
+    Return the effective AccessPolicy for the current user on a given device.
+
+    Resolution order:
+      1. User's per-site policy (via user_site_access) for the device's site
+      2. Tenant-level default policy (is_default=True)
+      3. null — no policy, fallback to role defaults
+
+    Used by the frontend to conditionally show/hide UI elements (HMI, audit log…).
+    """
+    policy = None
+
+    if device_id:
+        # Load device to find site
+        dev_result = await db.execute(
+            select(Device).where(Device.id == uuid.UUID(device_id))
+        )
+        device = dev_result.scalar_one_or_none()
+        if device and device.site_id:
+            policy = await get_site_policy(db, user.id, device.site_id)
+
+    if policy is None:
+        policy = await get_tenant_default_policy(db, user.tenant_id)
+
+    if policy is None:
+        return None
+
+    return _policy_to_out(policy)
+
+
+@router.post("/seed-defaults", status_code=status.HTTP_201_CREATED)
+async def seed_default_policies(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    Seed the 4 default policies (Полный доступ, Инженер, Оператор, Наблюдатель)
+    for this tenant. Idempotent — skips if a policy with the same name already exists.
+    """
+    _require_manager(user)
+
+    created = []
+    for template in DEFAULT_POLICIES:
+        # Check if already exists
+        exists = await db.execute(
+            select(AccessPolicy).where(
+                AccessPolicy.tenant_id == user.tenant_id,
+                AccessPolicy.name == template["name"],
+            )
+        )
+        if exists.scalar_one_or_none() is not None:
+            continue
+
+        policy = AccessPolicy(tenant_id=user.tenant_id, **template)
+        db.add(policy)
+        created.append(template["name"])
+
+    await db.commit()
+    return {"seeded": created}
+
+
 @router.get("/{policy_id}", response_model=AccessPolicyOut)
 async def get_policy(
     policy_id: str,
@@ -269,70 +336,3 @@ async def delete_policy(
 
     await db.delete(policy)
     await db.commit()
-
-
-@router.get("/effective", response_model=AccessPolicyOut | None)
-async def get_effective_policy(
-    user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-    device_id: str | None = None,
-):
-    """
-    Return the effective AccessPolicy for the current user on a given device.
-
-    Resolution order:
-      1. User's per-site policy (via user_site_access) for the device's site
-      2. Tenant-level default policy (is_default=True)
-      3. null — no policy, fallback to role defaults
-
-    Used by the frontend to conditionally show/hide UI elements (HMI, audit log…).
-    """
-    policy = None
-
-    if device_id:
-        # Load device to find site
-        dev_result = await db.execute(
-            select(Device).where(Device.id == uuid.UUID(device_id))
-        )
-        device = dev_result.scalar_one_or_none()
-        if device and device.site_id:
-            policy = await get_site_policy(db, user.id, device.site_id)
-
-    if policy is None:
-        policy = await get_tenant_default_policy(db, user.tenant_id)
-
-    if policy is None:
-        return None
-
-    return _policy_to_out(policy)
-
-
-@router.post("/seed-defaults", status_code=status.HTTP_201_CREATED)
-async def seed_default_policies(
-    user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    """
-    Seed the 4 default policies (Полный доступ, Инженер, Оператор, Наблюдатель)
-    for this tenant. Idempotent — skips if a policy with the same name already exists.
-    """
-    _require_manager(user)
-
-    created = []
-    for template in DEFAULT_POLICIES:
-        # Check if already exists
-        exists = await db.execute(
-            select(AccessPolicy).where(
-                AccessPolicy.tenant_id == user.tenant_id,
-                AccessPolicy.name == template["name"],
-            )
-        )
-        if exists.scalar_one_or_none() is not None:
-            continue
-
-        policy = AccessPolicy(tenant_id=user.tenant_id, **template)
-        db.add(policy)
-        created.append(template["name"])
-
-    await db.commit()
-    return {"seeded": created}
