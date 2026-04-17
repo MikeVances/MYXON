@@ -121,7 +121,7 @@ export interface Device {
   vendor_id: string | null
   device_family: string | null
   device_capabilities: Record<string, unknown> | null
-  published_resources?: Array<{ id: string; name: string; protocol: string; port: number }>
+  published_resources: Array<{ id: string; name: string; protocol: string; port: number }> | null
 }
 
 // ---------------------------------------------------------------------------
