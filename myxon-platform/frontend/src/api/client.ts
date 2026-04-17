@@ -107,12 +107,20 @@ export const devicesApi = {
 
 export interface Device {
   id: string
-  site_id: string | null
   serial_number: string
   name: string
   model: string | null
+  firmware_version: string | null
   status: string
+  claim_state: string
   last_seen_at: string | null
+  tenant_id: string | null
+  site_id: string | null
+  dealer_id: string | null
+  partner_id: string | null
+  vendor_id: string | null
+  device_family: string | null
+  device_capabilities: Record<string, unknown> | null
   published_resources?: Array<{ id: string; name: string; protocol: string; port: number }>
 }
 
