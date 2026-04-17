@@ -1,0 +1,8 @@
+# Root dependency entrypoint for MYXON workspace.
+# Installs backend + edge-agent requirements and reverse tooling extras.
+
+-r myxon-platform/backend/requirements.txt
+-r myxon-platform/edge-agent/requirements.txt
+
+# Reverse/research tooling
+PyYAML==6.0.3

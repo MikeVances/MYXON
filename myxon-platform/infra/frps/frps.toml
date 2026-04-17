@@ -1,0 +1,32 @@
+bindPort = 7000
+webServer.port = 7500
+webServer.addr = "0.0.0.0"
+
+# ── Auth ───────────────────────────────────────────────────────────────────────
+# auth.method = "none" — frps не проверяет свой глобальный токен.
+# Вся аутентификация делегирована HTTP Plugin ниже.
+# frpc не должен задавать auth.method / auth.token — иначе frps будет
+# ожидать совпадения и отклонит соединение до вызова плагина.
+auth.method = "none"
+
+# ── HTTP Plugin: per-device token validation ──────────────────────────────────
+# frps вызывает наш backend при каждом frpc Login.
+# Backend проверяет device_token из frpc metadatas.
+# Защита от внешних вызовов — на уровне nginx (блокирует /api/v0/frps/ снаружи)
+# и Docker-сети (backend не проброшен наружу).
+[[httpPlugins]]
+name = "myxon-device-auth"
+addr = "http://backend:8000"
+path = "/api/v0/frps/auth"
+ops  = ["Login"]
+
+# ── Tunnel port allocation range ──────────────────────────────────────────────
+allowPorts = [
+  { start = 10000, end = 10100 }
+]
+
+# ── TLS ───────────────────────────────────────────────────────────────────────
+transport.tls.force = false
+
+log.to    = "console"
+log.level = "info"

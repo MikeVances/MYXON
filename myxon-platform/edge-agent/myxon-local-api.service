@@ -1,0 +1,27 @@
+[Unit]
+Description=MYXON Local Agent API
+Documentation=https://github.com/myxon/myxon-platform
+After=network.target myxon-agent.service
+Wants=myxon-agent.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/myxon-agent
+EnvironmentFile=-/etc/myxon/agent.env
+
+# Bind to LAN interface only — change LOCAL_API_BIND to your LAN IP in production
+# e.g. LOCAL_API_BIND=192.168.1.10
+Environment=LOCAL_API_BIND=0.0.0.0
+Environment=LOCAL_API_PORT=8765
+
+ExecStart=/opt/myxon-agent/venv/bin/python local_api.py
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=no
+# Note: reboot requires root — adjust if using a privilege-separated setup
+
+[Install]
+WantedBy=multi-user.target

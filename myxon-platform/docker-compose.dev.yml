@@ -1,0 +1,56 @@
+# Dev-only compose: PostgreSQL + Redis + FRPS.
+# Backend and frontend run natively with hot-reload via dev.sh.
+#
+# Architecture:
+#   Router (agent + frpc) ──tunnel──> FRPS:7000
+#   Backend WS bridge ──TCP──> FRPS:assigned_port ──> agent ──> controller
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml down
+
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: myxon
+      POSTGRES_USER: myxon
+      POSTGRES_PASSWORD: myxon_dev_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myxon"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 5
+
+  # FRPS — tunnel server. Agents connect here via frpc.
+  # Dashboard: http://localhost:7500
+  frps:
+    image: snowdreamtech/frps:latest
+    restart: unless-stopped
+    ports:
+      - "7000:7000"                   # frpc agents connect here
+      - "7500:7500"                   # FRPS dashboard (optional)
+      - "10000-10100:10000-10100"     # per-device reverse tunnel ports
+    volumes:
+      - ./infra/frps/frps.toml:/etc/frp/frps.toml:ro
+    command: ["-c", "/etc/frp/frps.toml"]
+
+volumes:
+  pgdata_dev:

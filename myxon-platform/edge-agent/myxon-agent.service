@@ -1,0 +1,24 @@
+[Unit]
+Description=MYXON Edge Agent
+Documentation=https://github.com/myxon/platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/myxon-agent
+EnvironmentFile=/opt/myxon-agent/agent.env
+ExecStart=/usr/bin/python3 /opt/myxon-agent/myxon_agent.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=myxon-agent
+
+# Restart on failure, but slow down if it keeps crashing
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Remote Plus Device Profiles",
+  "type": "object",
+  "required": ["version", "profiles"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["family", "brandings", "screen", "capture", "keys"],
+        "properties": {
+          "family": {
+            "type": "string",
+            "minLength": 1
+          },
+          "brandings": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "screen": {
+            "type": "object",
+            "required": ["width", "height", "decoder"],
+            "properties": {
+              "width": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "decoder": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "capture": {
+            "type": "object",
+            "required": ["default_command", "supports_fast"],
+            "properties": {
+              "default_command": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "supports_fast": {
+                "type": "boolean"
+              }
+            }
+          },
+          "keys": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "family": "orion",
+      "brandings": ["hotraco", "syslinq", "default"],
+      "screen": {
+        "width": 240,
+        "height": 128,
+        "decoder": "orion_rle"
+      },
+      "capture": {
+        "default_command": 96,
+        "supports_fast": true
+      },
+      "keys": {
+        "up": 19,
+        "right": 18,
+        "down": 20,
+        "left": 17,
+        "ok": 21,
+        "plusminus": 22,
+        "dot": 46,
+        "num0": 48,
+        "num1": 49,
+        "num2": 50,
+        "num3": 51,
+        "num4": 52,
+        "num5": 53,
+        "num6": 54,
+        "num7": 55,
+        "num8": 56,
+        "num9": 57,
+        "f1": 64,
+        "f2": 65,
+        "f3": 66,
+        "f4": 67,
+        "f5": 68,
+        "f6": 69,
+        "prev": 80,
+        "next": 81
+      }
+    },
+    {
+      "family": "cygnus",
+      "brandings": ["hotraco", "syslinq", "default"],
+      "screen": {
+        "width": 128,
+        "height": 64,
+        "decoder": "cygnus_rle_mirrored_row"
+      },
+      "capture": {
+        "default_command": 96,
+        "supports_fast": true
+      },
+      "keys": {
+        "up": 19,
+        "right": 18,
+        "down": 20,
+        "left": 17,
+        "ok": 21,
+        "f1": 64,
+        "f2": 65,
+        "f3": 66,
+        "f4": 67
+      }
+    },
+    {
+      "family": "sirius",
+      "brandings": ["hotraco", "syslinq", "default"],
+      "screen": {
+        "width": 122,
+        "height": 32,
+        "decoder": "sirius_bit_unpack"
+      },
+      "capture": {
+        "default_command": 92,
+        "supports_fast": false
+      },
+      "keys": {
+        "up": 1,
+        "right": 3,
+        "down": 2,
+        "ok": 4,
+        "key1": 16,
+        "key2": 17,
+        "key3": 18,
+        "key4": 19,
+        "key5": 20,
+        "key6": 21,
+        "key7": 22,
+        "key8": 23,
+        "key9": 24,
+        "key10": 25
+      }
+    }
+  ]
+}

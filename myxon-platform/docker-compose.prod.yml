@@ -1,0 +1,122 @@
+###############################################################################
+# MYXON Platform — Production Docker Compose
+#
+# Использование:
+#   cp .env.example .env && nano .env
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Первый запуск:
+#   docker compose -f docker-compose.prod.yml exec backend python -m scripts.bootstrap
+###############################################################################
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: myxon
+      POSTGRES_USER: myxon
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myxon"]
+      interval: 5s
+      retries: 10
+    # NOT exposed externally — only accessible within Docker network
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      retries: 10
+    # NOT exposed externally
+
+  # ── Backend (FastAPI) ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    entrypoint: ["./entrypoint.sh"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://myxon:${DB_PASSWORD}@db:5432/myxon
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      SECRET_KEY: ${SECRET_KEY}
+      ENVIRONMENT: production
+      DEBUG: "false"
+      APP_BASE_URL: ${APP_BASE_URL}
+      FRPS_HOST: ${SERVER_HOST}
+      FRPS_BIND_PORT: ${FRPS_BIND_PORT:-7000}
+      HEARTBEAT_TIMEOUT_SECONDS: 60
+      LOG_LEVEL: info
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # NOT exposed externally — nginx proxies /api/ and /ws/
+
+  # ── Frontend (React — built static) ──────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    # NOT exposed externally — nginx serves it
+
+  # ── FRPS (tunnel server) ─────────────────────────────────────────────────────
+  frps:
+    image: snowdreamtech/frps:0.61.0
+    restart: unless-stopped
+    ports:
+      - "${FRPS_BIND_PORT:-7000}:7000"          # frpc connects here (Orange Pi → VPS)
+      - "7500:7500"                              # frps dashboard (закрой файрволом в проде)
+      - "${TUNNEL_PORT_START:-10000}-${TUNNEL_PORT_END:-10100}:10000-10100"
+    volumes:
+      - ./infra/frps/frps.toml:/etc/frp/frps.toml:ro
+    command: ["-c", "/etc/frp/frps.toml"]
+
+  # ── Guacd (Guacamole proxy daemon) ──────────────────────────────────────────
+  guacd:
+    image: guacamole/guacd:1.5.5
+    restart: unless-stopped
+    # NOT exposed externally
+
+  # ── Nginx (reverse proxy + TLS) ──────────────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro          # TLS certs (certbot/manual)
+      - certbot_www:/var/www/certbot                     # certbot ACME challenge
+    depends_on:
+      - backend
+      - frontend
+
+  # ── Certbot (Let's Encrypt — опционально) ─────────────────────────────────
+  # Запускать вручную: docker compose -f docker-compose.prod.yml run --rm certbot
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./infra/nginx/certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: ["sh", "-c", "trap exit TERM; while :; do sleep 12h & wait $${!}; certbot renew; done"]
+    profiles: ["certbot"]   # не запускается в составе основного up
+
+volumes:
+  pgdata:
+  redisdata:
+  certbot_www:

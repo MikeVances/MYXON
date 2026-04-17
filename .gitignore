@@ -1,0 +1,57 @@
+# ─── Секреты и окружение ────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.env
+agent.env
+# Примеры можно коммитить
+!*.env.example
+!agent.env.example
+
+# ─── Python ─────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# ─── Node / Frontend ────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+.next/
+.nuxt/
+
+# ─── Reverse engineering & бинарные дампы ───────────────────────────────────
+# Чужие прошивки и APK — юридически рискованно даже в приватном репо
+ixon_dump/
+ixon_dump_full/
+firmware_dump/
+tmp_android/
+RND server/
+SVOVmirror/
+reverse_agent/
+*.xapk
+*.apk
+*.bin
+
+# ─── macOS ──────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# ─── IDE ────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
