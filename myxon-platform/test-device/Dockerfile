@@ -21,9 +21,10 @@ RUN pip install --no-cache-dir httpx
 WORKDIR /app
 
 # Копируем агент и фейковый контроллер
-COPY ../edge-agent/myxon_agent.py ./myxon_agent.py
-COPY fake_controller.py ./fake_controller.py
-COPY start.sh ./start.sh
+# Пути относительно build context (myxon-platform/)
+COPY edge-agent/myxon_agent.py ./myxon_agent.py
+COPY test-device/fake_controller.py ./fake_controller.py
+COPY test-device/start.sh ./start.sh
 RUN chmod +x start.sh
 
 # ── Переменные окружения (переопределяются при docker run) ──────────────────
