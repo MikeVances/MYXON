@@ -20,6 +20,7 @@ import app.models.alarm  # noqa: F401
 import app.models.invite  # noqa: F401
 import app.models.access_policy  # noqa: F401
 import app.models.user_site_access  # noqa: F401
+import app.models.activation_code  # noqa: F401
 
 config = context.config
 

@@ -237,6 +237,29 @@ export const accessPoliciesApi = {
 }
 
 // ---------------------------------------------------------------------------
+// Activation Codes (dealer provisioning flow)
+// ---------------------------------------------------------------------------
+export interface ActivationCodeItem {
+  id: string
+  code: string
+  device_name: string | null
+  expires_at: string
+  used_at: string | null
+  device_id: string | null
+  created_at: string
+}
+
+export const activationCodesApi = {
+  generate: (deviceName?: string, ttlDays = 7) =>
+    api.post<ActivationCodeItem>('/api/v0/activation-codes', {
+      device_name: deviceName || null,
+      ttl_days: ttlDays,
+    }),
+  list: () => api.get<ActivationCodeItem[]>('/api/v0/activation-codes'),
+  revoke: (code: string) => api.delete(`/api/v0/activation-codes/${code}`),
+}
+
+// ---------------------------------------------------------------------------
 // Site Access (user → site → policy assignment)
 // ---------------------------------------------------------------------------
 export interface SiteAccessEntry {

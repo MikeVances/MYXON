@@ -55,13 +55,31 @@ _load_env_file()
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 CLOUD_URL          = os.environ.get("MYXON_CLOUD_URL", "http://localhost:8000")
-SERIAL_NUMBER      = os.environ.get("MYXON_SERIAL", "MYXON-DEV-001")
 AGENT_PUBLIC_ID    = os.environ.get("MYXON_AGENT_ID", "agent-001")
 AGENT_SECRET       = os.environ.get("MYXON_AGENT_SECRET", "dev-secret")
 HEARTBEAT_INTERVAL = int(os.environ.get("MYXON_HEARTBEAT_INTERVAL", "15"))
 DISCOVERY_INTERVAL = int(os.environ.get("MYXON_DISCOVERY_INTERVAL", "60"))
 
 FRPC_BIN = os.environ.get("MYXON_FRPC_BIN", "frpc")
+
+# ── Activation code (Scenario 2: OEM SDK / new device flow) ───────────────────
+#
+# Set MYXON_ACTIVATION_CODE instead of MYXON_SERIAL to provision a new device.
+# The agent calls POST /api/v0/agent/activate, receives a generated serial number
+# and frpc token, then persists them to DEVICE_STATE_FILE.
+#
+# On subsequent reboots the agent reads DEVICE_STATE_FILE and skips activation,
+# using the already-assigned serial + token for the normal /register flow.
+# This ensures the one-time code is only consumed once — even after power cycles.
+ACTIVATION_CODE = os.environ.get("MYXON_ACTIVATION_CODE", "").strip()
+
+# DEVICE_STATE_FILE: where the agent stores its identity after first activation.
+# Contains: {"device_id": "...", "serial_number": "MX-2026-00001", "frpc_token": "..."}
+DEVICE_STATE_FILE = Path(os.environ.get("MYXON_DEVICE_STATE", "/etc/myxon/device.json"))
+
+# Legacy flow: pre-registered serial (MYXON_SERIAL env var)
+# Used when there is no activation code — device was pre-registered by a dealer.
+SERIAL_NUMBER = os.environ.get("MYXON_SERIAL", "MYXON-DEV-001")
 
 # Per-device frpc token — issued by server on first registration.
 # Stored locally so it survives restarts. Do NOT put this in agent.env;
@@ -99,6 +117,42 @@ def _save_token(token: str) -> None:
 
 # Runtime token (loaded from file or received from server)
 _agent_token: str | None = _load_token()
+
+
+# ── Device state (activation code flow) ───────────────────────────────────────
+
+def _load_device_state() -> dict | None:
+    """
+    Load persisted device identity from DEVICE_STATE_FILE.
+    Returns dict with device_id, serial_number, frpc_token — or None if not activated yet.
+    """
+    try:
+        data = json.loads(DEVICE_STATE_FILE.read_text())
+        if "serial_number" in data and "frpc_token" in data:
+            return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def _save_device_state(device_id: str, serial_number: str, frpc_token: str) -> None:
+    """
+    Persist device identity after first activation.
+    Written to DEVICE_STATE_FILE (mode 0600) so it survives reboots.
+    The activation code is NOT stored — it's one-time use, already consumed.
+    """
+    state = {
+        "device_id": device_id,
+        "serial_number": serial_number,
+        "frpc_token": frpc_token,
+    }
+    try:
+        DEVICE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        DEVICE_STATE_FILE.write_text(json.dumps(state, indent=2))
+        DEVICE_STATE_FILE.chmod(0o600)
+        log.info("Device state saved to %s (serial=%s)", DEVICE_STATE_FILE, serial_number)
+    except OSError as e:
+        log.warning("Could not save device state: %s — state in memory only", e)
 
 # Known controller ports to probe during LAN scan
 # Format: {port: (resource_id, protocol, display_name)}
@@ -363,6 +417,70 @@ def get_hw_info() -> tuple[str, str]:
 
 # ── Registration ───────────────────────────────────────────────────────────────
 
+async def activate(
+    client: httpx.AsyncClient,
+    resources: list[dict],
+    code: str,
+) -> tuple[str | None, str | None, dict | None]:
+    """
+    Activation-code flow: first-time device registration using one-time code.
+    Calls POST /api/v0/agent/activate — no prior device pre-registration needed.
+
+    Returns: (device_id, serial_number, tunnel_config) or (None, None, None) on failure.
+    After success, caller must persist serial_number and frpc_token via _save_device_state().
+    """
+    global _agent_token, SERIAL_NUMBER
+
+    firmware, hardware = get_hw_info()
+
+    payload = {
+        "code": code,
+        "metadata": {
+            "firmware_version": firmware,
+            "hardware_info": hardware,
+            "model": hardware,
+            "published_resources": resources,
+        },
+    }
+
+    try:
+        resp = await client.post(f"{CLOUD_URL}/api/v0/agent/activate", json=payload)
+
+        if resp.status_code == 201:
+            data = resp.json()
+            tc = data.get("tunnel")
+
+            # Persist token and update runtime state
+            frpc_token = data["frpc_token"]
+            serial = data["serial_number"]
+            dev_id = data["device_id"]
+
+            _agent_token = frpc_token
+            _save_token(frpc_token)
+
+            # Update module-level SERIAL_NUMBER so _build_frpc_config uses the correct name
+            SERIAL_NUMBER = serial
+
+            log.info("Activated! device_id=%s serial=%s tunnel_port=%s",
+                     dev_id, serial, tc.get("assigned_port") if tc else "none")
+            return dev_id, serial, tc
+
+        elif resp.status_code == 409:
+            log.error("Activation code already used — cannot activate again. "
+                      "Check DEVICE_STATE_FILE or contact your dealer for a new code.")
+        elif resp.status_code == 410:
+            log.error("Activation code expired — contact dealer for a new code.")
+        elif resp.status_code == 404:
+            log.error("Activation code not found — verify MYXON_ACTIVATION_CODE value.")
+        else:
+            log.error("Activation failed: %d %s", resp.status_code, resp.text[:200])
+
+    except httpx.RequestError as e:
+        log.error("Activation error: %s", e)
+
+    return None, None, None
+
+
 async def register(client: httpx.AsyncClient, resources: list[dict]) -> tuple[str | None, dict | None]:
     """Register with control plane. Returns (device_id, tunnel_config)."""
     global _agent_token
@@ -543,7 +661,7 @@ async def heartbeat_loop(client: httpx.AsyncClient, dev_id: str):
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 async def main():
-    global running
+    global running, SERIAL_NUMBER, _agent_token
 
     def handle_signal(sig, _frame):
         global running
@@ -554,7 +672,6 @@ async def main():
     signal.signal(signal.SIGTERM, handle_signal)
 
     log.info("MYXON Agent v0.2 starting")
-    log.info("  serial : %s", SERIAL_NUMBER)
     log.info("  server : %s", CLOUD_URL)
 
     frpc_proc: subprocess.Popen | None = None
@@ -565,15 +682,61 @@ async def main():
     # If nothing found yet — still register (resources = []) and retry discovery
     async with httpx.AsyncClient(timeout=10) as client:
 
-        # ── Step 2: Register with retry ───────────────────────────────────────
+        # ── Step 2: Choose registration flow ──────────────────────────────────
+        #
+        # Priority order:
+        #  A. DEVICE_STATE_FILE exists → already activated; use stored serial + token
+        #  B. MYXON_ACTIVATION_CODE set → first boot; call /activate endpoint
+        #  C. MYXON_SERIAL set (legacy) → pre-registered flow; call /register
+        #
         device_id = None
         tunnel_config = None
-        for attempt in range(1, 11):
-            device_id, tunnel_config = await register(client, resources)
-            if device_id:
-                break
-            log.info("Retry %d/10 in 5s...", attempt)
-            await asyncio.sleep(5)
+
+        existing_state = _load_device_state()
+
+        if existing_state:
+            # ── Flow A: Already activated — restore identity and re-register ──
+            SERIAL_NUMBER = existing_state["serial_number"]
+            _agent_token  = existing_state["frpc_token"]
+            _save_token(_agent_token)  # Sync TOKEN_FILE with state file
+            log.info("Restored device identity: serial=%s", SERIAL_NUMBER)
+            log.info("Using /register flow (state file found)")
+
+            for attempt in range(1, 11):
+                device_id, tunnel_config = await register(client, resources)
+                if device_id:
+                    break
+                log.info("Retry %d/10 in 5s...", attempt)
+                await asyncio.sleep(5)
+
+        elif ACTIVATION_CODE:
+            # ── Flow B: First boot with activation code ────────────────────────
+            log.info("Activation code present — using /activate flow")
+            log.info("  code : %s", ACTIVATION_CODE[:4] + "-****-****-****")  # Mask for logs
+
+            for attempt in range(1, 11):
+                dev_id, serial, tc = await activate(client, resources, ACTIVATION_CODE)
+                if dev_id:
+                    device_id     = dev_id
+                    tunnel_config = tc
+                    # Persist identity so next reboot uses Flow A
+                    _save_device_state(dev_id, serial, _agent_token or "")
+                    break
+                # Don't retry 409/410 — those are permanent failures
+                log.info("Retry %d/10 in 5s...", attempt)
+                await asyncio.sleep(5)
+
+        else:
+            # ── Flow C: Legacy pre-registered serial flow ──────────────────────
+            log.info("  serial : %s", SERIAL_NUMBER)
+            log.info("Using legacy /register flow (MYXON_SERIAL)")
+
+            for attempt in range(1, 11):
+                device_id, tunnel_config = await register(client, resources)
+                if device_id:
+                    break
+                log.info("Retry %d/10 in 5s...", attempt)
+                await asyncio.sleep(5)
 
         if not device_id:
             log.error("Could not register after 10 attempts. Exiting.")

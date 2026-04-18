@@ -8,9 +8,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import QRCode from 'react-qr-code'
-import { dealerApi, authApi } from '../api/client'
+import { dealerApi, authApi, activationCodesApi } from '../api/client'
+import type { ActivationCodeItem } from '../api/client'
 
-type Tab = 'devices' | 'customers'
+type Tab = 'devices' | 'codes' | 'customers'
 
 interface DealerDevice {
   id: string
@@ -75,6 +76,16 @@ export default function DealerPortal() {
   // SN только что зарегистрированного устройства — показываем QR
   const [qrSerial, setQrSerial] = useState<string | null>(null)
 
+  // Activation Codes tab state
+  const [codes, setCodes] = useState<ActivationCodeItem[]>([])
+  const [codesLoading, setCodesLoading] = useState(false)
+  const [codeDeviceName, setCodeDeviceName] = useState('')
+  const [codeTtl, setCodeTtl] = useState(7)
+  const [generatingCode, setGeneratingCode] = useState(false)
+  const [codeError, setCodeError] = useState('')
+  const [newCode, setNewCode] = useState<ActivationCodeItem | null>(null)
+  const [copiedCode, setCopiedCode] = useState<string | null>(null)
+
   // Customers tab state
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteName, setInviteName] = useState('')
@@ -85,6 +96,12 @@ export default function DealerPortal() {
   useEffect(() => {
     loadDevices()
   }, [])
+
+  // Load codes when switching to the codes tab
+  useEffect(() => {
+    if (tab === 'codes') loadCodes()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
 
   async function loadDevices() {
     setDevLoading(true)
@@ -97,6 +114,55 @@ export default function DealerPortal() {
     } finally {
       setDevLoading(false)
     }
+  }
+
+  async function loadCodes() {
+    setCodesLoading(true)
+    try {
+      const { data } = await activationCodesApi.list()
+      setCodes(data)
+    } catch {
+      // ignore
+    } finally {
+      setCodesLoading(false)
+    }
+  }
+
+  async function handleGenerateCode() {
+    setGeneratingCode(true)
+    setCodeError('')
+    setNewCode(null)
+    try {
+      const { data } = await activationCodesApi.generate(
+        codeDeviceName.trim() || undefined,
+        codeTtl,
+      )
+      setNewCode(data)
+      setCodeDeviceName('')
+      loadCodes()
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response: { data: { detail: string } } }).response?.data?.detail
+        : 'Failed to generate code'
+      setCodeError(msg || 'Failed to generate code')
+    } finally {
+      setGeneratingCode(false)
+    }
+  }
+
+  async function handleRevokeCode(code: string) {
+    try {
+      await activationCodesApi.revoke(code)
+      setCodes((prev) => prev.filter((c) => c.code !== code))
+    } catch {
+      // ignore
+    }
+  }
+
+  function copyCode(code: string) {
+    navigator.clipboard.writeText(code).catch(() => {})
+    setCopiedCode(code)
+    setTimeout(() => setCopiedCode(null), 2000)
   }
 
   async function handleRegister() {
@@ -173,15 +239,19 @@ export default function DealerPortal() {
       <div className="max-w-4xl mx-auto px-6 py-8">
         {/* Tabs */}
         <div className="flex gap-1 mb-8 bg-slate-100 p-1 rounded-lg w-fit">
-          {(['devices', 'customers'] as Tab[]).map((t) => (
+          {([
+            ['devices', 'Devices'],
+            ['codes', 'Activation Codes'],
+            ['customers', 'Customers'],
+          ] as [Tab, string][]).map(([t, label]) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-5 py-2 rounded-md text-sm font-medium transition capitalize ${
+              className={`px-5 py-2 rounded-md text-sm font-medium transition ${
                 tab === t ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              {t}
+              {label}
             </button>
           ))}
         </div>
@@ -321,6 +391,170 @@ export default function DealerPortal() {
             <p className="text-xs text-slate-400">
               You see connectivity status only. Customer data (alarms, HMI, history) is not accessible to dealers.
             </p>
+          </div>
+        )}
+
+        {/* ---- Activation Codes Tab ---- */}
+        {tab === 'codes' && (
+          <div className="space-y-6">
+            {/* Generate new code */}
+            <div className="bg-white rounded-lg border border-slate-200 p-5">
+              <h2 className="text-sm font-semibold text-slate-700 mb-1">Generate Activation Code</h2>
+              <p className="text-xs text-slate-400 mb-4">
+                Generate a one-time code for OEM partner devices. The device uses this code on first boot to self-register.
+              </p>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    value={codeDeviceName}
+                    onChange={(e) => setCodeDeviceName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleGenerateCode()}
+                    placeholder="Device label (e.g. Farm Noord unit #3)"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm
+                      focus:outline-none focus:ring-2 focus:ring-myxon-500"
+                  />
+                </div>
+                <div className="w-28">
+                  <select
+                    value={codeTtl}
+                    onChange={(e) => setCodeTtl(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm
+                      focus:outline-none focus:ring-2 focus:ring-myxon-500"
+                  >
+                    <option value={7}>7 days</option>
+                    <option value={14}>14 days</option>
+                    <option value={30}>30 days</option>
+                    <option value={90}>90 days</option>
+                  </select>
+                </div>
+                <button
+                  onClick={handleGenerateCode}
+                  disabled={generatingCode}
+                  className="px-4 py-2 bg-myxon-600 text-white rounded-md text-sm font-medium
+                    hover:bg-myxon-700 transition disabled:opacity-50 whitespace-nowrap"
+                >
+                  {generatingCode ? 'Generating...' : '+ Generate'}
+                </button>
+              </div>
+              {codeError && <p className="mt-2 text-red-600 text-xs">{codeError}</p>}
+            </div>
+
+            {/* Newly generated code — highlighted */}
+            {newCode && (
+              <div className="bg-white rounded-lg border border-green-200 p-5">
+                <p className="text-sm font-semibold text-green-700 mb-3">Code generated!</p>
+                <div className="bg-slate-50 rounded-md border border-slate-200 p-4 flex items-center justify-between">
+                  <span className="font-mono text-xl font-bold tracking-widest text-slate-800">
+                    {newCode.code}
+                  </span>
+                  <button
+                    onClick={() => copyCode(newCode.code)}
+                    className="ml-4 px-3 py-1.5 border border-slate-300 rounded text-xs font-medium
+                      text-slate-700 hover:bg-slate-100 transition whitespace-nowrap"
+                  >
+                    {copiedCode === newCode.code ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+                {newCode.device_name && (
+                  <p className="mt-2 text-xs text-slate-500">For: <strong>{newCode.device_name}</strong></p>
+                )}
+                <p className="mt-1 text-xs text-slate-400">
+                  Expires: {new Date(newCode.expires_at).toLocaleDateString()}
+                </p>
+                <p className="mt-3 text-xs text-slate-400">
+                  Set <code className="bg-slate-100 px-1 rounded">MYXON_ACTIVATION_CODE={newCode.code}</code> in the device agent environment before first boot.
+                </p>
+                <button
+                  onClick={() => setNewCode(null)}
+                  className="mt-3 text-xs text-slate-400 hover:text-slate-600 underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Code list */}
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-700">All Activation Codes</h2>
+                <span className="text-xs text-slate-400">{codes.length} total</span>
+              </div>
+
+              {codesLoading ? (
+                <div className="px-5 py-8 text-center text-slate-400 text-sm">Loading...</div>
+              ) : codes.length === 0 ? (
+                <div className="px-5 py-8 text-center text-slate-400 text-sm">
+                  No codes generated yet.
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50">
+                      <th className="text-left px-5 py-2.5 text-xs font-medium text-slate-500">Code</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500">Label</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500">Status</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500">Expires</th>
+                      <th className="px-4 py-2.5" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {codes.map((c) => {
+                      const isUsed = c.used_at !== null
+                      const isExpired = !isUsed && new Date(c.expires_at) < new Date()
+                      return (
+                        <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-slate-700 text-xs">{c.code}</span>
+                              {!isUsed && !isExpired && (
+                                <button
+                                  onClick={() => copyCode(c.code)}
+                                  className="text-slate-400 hover:text-slate-600 transition text-xs"
+                                >
+                                  {copiedCode === c.code ? '✓' : '⎘'}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-slate-500 text-xs">
+                            {c.device_name ?? <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            {isUsed ? (
+                              <span className="inline-flex rounded px-2 py-0.5 text-xs font-medium bg-green-50 text-green-600">
+                                Used
+                              </span>
+                            ) : isExpired ? (
+                              <span className="inline-flex rounded px-2 py-0.5 text-xs font-medium bg-red-50 text-red-500">
+                                Expired
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-600">
+                                Pending
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 text-xs">
+                            {new Date(c.expires_at).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {!isUsed && !isExpired && (
+                              <button
+                                onClick={() => handleRevokeCode(c.code)}
+                                className="text-xs text-red-400 hover:text-red-600 transition"
+                              >
+                                Revoke
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         )}
 
