@@ -17,7 +17,9 @@ from app.schemas.device import (
     AgentHeartbeatRequest,
     AgentHeartbeatResponse,
     AgentRegisterRequest,
+    SmsPendingItem,
 )
+from app.services.notifications import get_pending_sms_for_device
 from app.services.tunnel import allocate_tunnel_port
 
 router = APIRouter(prefix="/api/v0/agent", tags=["agent"])
@@ -179,7 +181,18 @@ async def agent_heartbeat(
         )
         db.add(audit)
 
-    return AgentHeartbeatResponse(online=True, server_time=now, config_version=1)
+    # Collect pending SMS for this device (alarms not yet notified via GSM)
+    sms_payloads = await get_pending_sms_for_device(db, device)
+    pending_sms = [SmsPendingItem(**p) for p in sms_payloads]
+
+    await db.commit()
+
+    return AgentHeartbeatResponse(
+        online=True,
+        server_time=now,
+        config_version=1,
+        pending_sms=pending_sms,
+    )
 
 
 @router.post("/activate", response_model=AgentActivateResponse, status_code=status.HTTP_201_CREATED)

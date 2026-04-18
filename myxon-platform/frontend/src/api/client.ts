@@ -280,6 +280,55 @@ export interface TenantUser {
   role: string
 }
 
+// ---------------------------------------------------------------------------
+// Notifications — contacts & routing rules
+// ---------------------------------------------------------------------------
+export interface NotificationContact {
+  id: string
+  name: string
+  phone: string | null
+  email: string | null
+  channels: string[]   // ["sms", "email"]
+  active: boolean
+}
+
+export interface NotificationRule {
+  id: string
+  contact_id: string
+  contact_name: string
+  contact_phone: string | null
+  contact_email: string | null
+  contact_channels: string[]
+  scope_type: string   // "tenant" | "site" | "device"
+  scope_id: string
+  min_severity: string // "warning" | "alarm"
+  categories: string[]
+  active: boolean
+  notes: string | null
+}
+
+export const notificationsApi = {
+  // Contacts
+  listContacts: () =>
+    api.get<NotificationContact[]>('/api/v0/notifications/contacts'),
+  createContact: (data: Omit<NotificationContact, 'id'>) =>
+    api.post<NotificationContact>('/api/v0/notifications/contacts', data),
+  updateContact: (id: string, data: Partial<NotificationContact>) =>
+    api.put<NotificationContact>(`/api/v0/notifications/contacts/${id}`, data),
+  deleteContact: (id: string) =>
+    api.delete(`/api/v0/notifications/contacts/${id}`),
+
+  // Rules
+  listRules: () =>
+    api.get<NotificationRule[]>('/api/v0/notifications/rules'),
+  createRule: (data: Omit<NotificationRule, 'id' | 'contact_name' | 'contact_phone' | 'contact_email' | 'contact_channels'>) =>
+    api.post<NotificationRule>('/api/v0/notifications/rules', data),
+  updateRule: (id: string, data: Partial<NotificationRule>) =>
+    api.put<NotificationRule>(`/api/v0/notifications/rules/${id}`, data),
+  deleteRule: (id: string) =>
+    api.delete(`/api/v0/notifications/rules/${id}`),
+}
+
 export const siteAccessApi = {
   listUsers: () => api.get<TenantUser[]>('/api/v0/users'),
   listSiteAccess: (siteId: string) =>

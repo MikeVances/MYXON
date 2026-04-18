@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     guacd_host: str = "guacd"
     guacd_port: int = 4822
 
+    # Email notifications (SMTP)
+    # Leave smtp_host empty to disable email notifications entirely.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@myxon.io"
+    smtp_use_tls: bool = True    # STARTTLS on port 587; set False for port 465 (SSL)
+    notify_on_alarm: bool = True # Send email on new ALARM or WARNING severity alarms
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

@@ -8,6 +8,7 @@ import DealerPortal from './pages/DealerPortal'
 import RegisterByInvite from './pages/RegisterByInvite'
 import AccessPolicyEditor from './pages/AccessPolicyEditor'
 import SiteAccessPage from './pages/SiteAccessPage'
+import NotificationSettings from './pages/NotificationSettings'
 import { getStoredUserRole, isAdminRole } from './api/client'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -94,6 +95,15 @@ export default function App() {
         element={
           <AdminRoute>
             <SiteAccessPage />
+          </AdminRoute>
+        }
+      />
+
+      <Route
+        path="/notifications"
+        element={
+          <AdminRoute>
+            <NotificationSettings />
           </AdminRoute>
         }
       />

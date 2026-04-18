@@ -66,15 +66,17 @@ CLOUD_URL="${MYXON_CLOUD_URL:-}"
 SCAN_MODE="${MYXON_SCAN_MODE:-auto}"
 LAN_IFACE="${MYXON_LAN_IFACE:-}"         # e.g. eth1 (USB Ethernet adapter)
 LAN_IP="${MYXON_LAN_IP:-192.168.10.1}"   # gateway IP on the LAN interface
+BACKUP_MODEM="${MYXON_BACKUP_MODEM:-}"   # e.g. /dev/ttyUSB0 — 4G USB modem for WAN failover
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --code)      ACTIVATION_CODE="$2"; shift 2 ;;
-        --server)    CLOUD_URL="$2";       shift 2 ;;
-        --scan)      SCAN_MODE="$2";       shift 2 ;;
-        --lan-iface) LAN_IFACE="$2";       shift 2 ;;
-        --lan-ip)    LAN_IP="$2";          shift 2 ;;
-        *) _die "Unknown argument: $1. Usage: install.sh --code XXXX-XXXX-XXXX-XXXX --server https://myxon.example.com [--lan-iface eth1]" ;;
+        --code)          ACTIVATION_CODE="$2"; shift 2 ;;
+        --server)        CLOUD_URL="$2";       shift 2 ;;
+        --scan)          SCAN_MODE="$2";       shift 2 ;;
+        --lan-iface)     LAN_IFACE="$2";       shift 2 ;;
+        --lan-ip)        LAN_IP="$2";          shift 2 ;;
+        --backup-modem)  BACKUP_MODEM="$2";    shift 2 ;;
+        *) _die "Unknown argument: $1. Usage: install.sh --code XXXX-XXXX-XXXX-XXXX --server https://myxon.example.com [--lan-iface eth1] [--backup-modem /dev/ttyUSB0]" ;;
     esac
 done
 
@@ -104,7 +106,8 @@ echo ""
 _cyan "Code   : ${ACTIVATION_CODE:0:4}-****-****-****"
 _cyan "Server : $CLOUD_URL"
 _cyan "Scan   : $SCAN_MODE"
-[[ -n "$LAN_IFACE" ]] && _cyan "Router : $LAN_IFACE → $LAN_IP/24 (DHCP + NAT)"
+[[ -n "$LAN_IFACE" ]]     && _cyan "Router : $LAN_IFACE → $LAN_IP/24 (DHCP + NAT)"
+[[ -n "$BACKUP_MODEM" ]]  && _cyan "4G WAN : $BACKUP_MODEM (failover via ModemManager)"
 echo ""
 
 # ── Guard: already activated? ─────────────────────────────────────────────────
@@ -119,6 +122,126 @@ if [ -f "$MYXON_STATE_DIR/device.json" ]; then
 else
     ALREADY_ACTIVATED=0
 fi
+
+# ── 4G WAN failover setup (called if --backup-modem is set) ──────────────────
+#
+# Architecture mirrors IXON IXrouter failover:
+#   eth0  (primary WAN)   — route metric 100  → NM manages via DHCP
+#   wwan0 (4G backup WAN) — route metric 200  → NM manages via ModemManager
+#
+# NetworkManager automatically promotes wwan0 default route when eth0 drops.
+# No custom watchdog needed — NM tracks carrier state and online detection.
+#
+# Tested with:
+#   - Huawei E3372 (HiLink mode — appears as USB Ethernet, not modem)
+#   - Quectel EC25 / Sierra Wireless EM7455 (ModemManager mode)
+#
+_setup_wan_failover() {
+    local modem_dev="$1"   # e.g. /dev/ttyUSB0
+
+    _green "▶ Setting up 4G WAN failover..."
+    _cyan  "  Primary   : eth0 (Ethernet, metric 100)"
+    _cyan  "  Backup    : $modem_dev → wwan0 (4G, metric 200)"
+
+    # Install ModemManager + NetworkManager (NM replaces ifupdown for WAN ifaces)
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+        modemmanager \
+        network-manager \
+        usb-modeswitch     # Switches composite USB modems into modem-only mode
+
+    systemctl enable ModemManager NetworkManager
+    systemctl start  ModemManager NetworkManager
+
+    # ── Configure primary WAN (eth0) via NetworkManager ──
+    # Lower metric = higher priority. NM will prefer eth0 as long as it has a carrier.
+    # The connection is named "myxon-wan-primary" for easy identification.
+    if ! nmcli connection show myxon-wan-primary &>/dev/null; then
+        nmcli connection add \
+            type ethernet \
+            ifname eth0 \
+            con-name myxon-wan-primary \
+            ipv4.method auto \
+            ipv4.route-metric 100 \
+            ipv6.method disabled
+        _cyan "Primary WAN connection created: eth0 metric=100"
+    else
+        nmcli connection modify myxon-wan-primary ipv4.route-metric 100
+        _cyan "Primary WAN connection updated: eth0 metric=100"
+    fi
+
+    # ── Configure 4G backup WAN via ModemManager ──
+    # NM uses ModemManager as a backend for GSM modems connected via USB.
+    # 'gsm' type works with most USB modems; APN 'internet' is the most common.
+    # The operator APN can be changed via: nmcli connection modify myxon-wan-4g gsm.apn <apn>
+    if ! nmcli connection show myxon-wan-4g &>/dev/null; then
+        nmcli connection add \
+            type gsm \
+            con-name myxon-wan-4g \
+            ifname '*' \
+            gsm.apn internet \
+            ipv4.method auto \
+            ipv4.route-metric 200 \
+            ipv6.method disabled \
+            connection.autoconnect yes
+        _cyan "4G backup connection created: metric=200, APN=internet"
+        _warn "APN may need adjustment for your carrier:"
+        _warn "  nmcli connection modify myxon-wan-4g gsm.apn <your-apn>"
+    else
+        nmcli connection modify myxon-wan-4g ipv4.route-metric 200
+        _cyan "4G backup connection updated: metric=200"
+    fi
+
+    # ── Connectivity monitor (systemd service) ──
+    # NM handles the actual failover, but this monitor gives us clear logging
+    # in journalctl so we can see failover events: "eth0 DOWN → 4G active"
+    cat > /usr/local/bin/myxon-wan-monitor <<'MONITOR'
+#!/usr/bin/env bash
+# MYXON WAN failover monitor — runs as a systemd service, logs route changes
+# Checks default route every 30s and reports which interface is carrying WAN traffic.
+while true; do
+    gw_iface=$(ip route show default 2>/dev/null | awk '/dev/{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')
+    if [[ "$gw_iface" == wwan* ]]; then
+        logger -t myxon-wan "WAN failover ACTIVE: using 4G ($gw_iface) — eth0 unavailable"
+    elif [[ -n "$gw_iface" ]]; then
+        logger -t myxon-wan "WAN primary OK: $gw_iface"
+    else
+        logger -t myxon-wan "WAN WARNING: no default route found"
+    fi
+    sleep 30
+done
+MONITOR
+    chmod +x /usr/local/bin/myxon-wan-monitor
+
+    cat > /etc/systemd/system/myxon-wan-monitor.service <<'MONSVC'
+[Unit]
+Description=MYXON WAN Failover Monitor
+After=network-online.target ModemManager.service NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/myxon-wan-monitor
+Restart=always
+RestartSec=5
+SyslogIdentifier=myxon-wan
+
+[Install]
+WantedBy=multi-user.target
+MONSVC
+
+    systemctl daemon-reload
+    systemctl enable myxon-wan-monitor
+    systemctl restart myxon-wan-monitor
+
+    _cyan "WAN monitor service: myxon-wan-monitor (journalctl -t myxon-wan -f)"
+
+    # Activate primary connection immediately
+    nmcli connection up myxon-wan-primary 2>/dev/null || true
+
+    _green "▶ 4G failover ready."
+    _cyan  "  Verify: nmcli device status"
+    _cyan  "  Logs  : journalctl -t myxon-wan -f"
+}
 
 # ── LAN router setup (called if --lan-iface is set) ──────────────────────────
 _setup_lan_router() {
@@ -281,6 +404,14 @@ else
     _cyan "  Single-NIC mode: agent will scan the existing LAN via MYXON_SCAN_MODE=${SCAN_MODE}"
 fi
 
+# ── 5b. 4G WAN failover (optional) ───────────────────────────────────────────
+_sep
+if [[ -n "$BACKUP_MODEM" ]]; then
+    _setup_wan_failover "$BACKUP_MODEM"
+else
+    _green "▶ Skipping 4G failover setup (no --backup-modem specified)"
+fi
+
 # ── 6. State directory ────────────────────────────────────────────────────────
 mkdir -p "$MYXON_STATE_DIR"
 chmod 700 "$MYXON_STATE_DIR"
@@ -322,6 +453,11 @@ MYXON_SCAN_MODE=$SCAN_MODE
 # When set, the agent scans ONLY this interface, ignoring all others.
 # Leave empty for auto-detection (single-NIC mode).
 MYXON_LAN_IFACE=$LAN_IFACE
+
+# GSM modem for local SMS delivery (set when --backup-modem was used).
+# Agent uses mmcli (ModemManager CLI) first; falls back to AT commands on this port.
+# Leave empty to disable local SMS (email-only notifications).
+MYXON_MODEM_PORT=$BACKUP_MODEM
 
 # Intervals (seconds)
 MYXON_HEARTBEAT_INTERVAL=15

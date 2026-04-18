@@ -72,10 +72,20 @@ class AgentHeartbeatRequest(BaseModel):
     tunnel_state: str | None = None
 
 
+class SmsPendingItem(BaseModel):
+    """One SMS message the agent should deliver via local GSM modem."""
+    to: str       # E.164 phone number, e.g. "+31612345678"
+    message: str  # Plain text, ≤ 160 chars for single GSM segment
+
+
 class AgentHeartbeatResponse(BaseModel):
     online: bool = True
     server_time: datetime
     config_version: int | None = None
+    # SMS messages to deliver via local GSM modem.
+    # Agent sends these using mmcli/AT commands, then discards the list.
+    # Backend sets sms_sent_at on alarms to prevent re-delivery.
+    pending_sms: list[SmsPendingItem] = []
 
 
 class AccessSessionCreate(BaseModel):

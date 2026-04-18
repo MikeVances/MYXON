@@ -61,6 +61,7 @@ export default defineConfig({
             { text: 'Device dashboard', link: '/customer/device-dashboard' },
             { text: 'Locations', link: '/customer/locations' },
             { text: 'Alarms', link: '/customer/alarms' },
+            { text: 'Notifications', link: '/customer/notifications' },
             { text: 'Access policies', link: '/customer/access-policies' },
           ],
         },

@@ -64,6 +64,28 @@ MYXON_FRPC_BIN=/usr/local/bin/frpc
 # Per-device frpc token file — managed automatically, do not edit
 # MYXON_TOKEN_FILE=/etc/myxon/agent_token
 
+# ─── LAN router mode ─────────────────────────────────────────────────────────
+
+# USB Ethernet adapter used as dedicated LAN interface (Orange Pi as router/gateway).
+# When set, the agent scans ONLY this interface — MYXON_SCAN_MODE is ignored.
+# Set automatically by install.sh --lan-iface.
+# MYXON_LAN_IFACE=eth1
+
+# ─── 4G WAN failover + GSM SMS ───────────────────────────────────────────────
+
+# USB GSM modem port. Serves two purposes:
+#
+#   1. WAN FAILOVER  — NetworkManager / ModemManager use this modem as backup
+#      internet (eth0 primary metric 100, wwan0 backup metric 200).
+#      Set automatically when install.sh --backup-modem is used.
+#
+#   2. LOCAL SMS     — the agent uses mmcli (ModemManager CLI) to send alarm
+#      SMS via this modem. Falls back to raw AT commands if mmcli is unavailable.
+#      No internet required — SMS goes directly to the GSM network.
+#
+# Leave empty to disable local SMS (email notifications still work via server SMTP).
+# MYXON_MODEM_PORT=/dev/ttyUSB0
+
 # ─── Manual resource override ─────────────────────────────────────────────────
 # Skip LAN auto-discovery and use a fixed list of resources.
 # JSON array format. Useful when controller IP is static and discovery is slow.
@@ -134,3 +156,28 @@ ip -o -4 addr show
 # Try switching to scan mode 'all' if controllers are on the WAN interface subnet
 # MYXON_SCAN_MODE=all
 ```
+
+**SMS not being delivered:**
+```bash
+# Check if ModemManager sees the modem
+mmcli -L
+
+# Check modem status (replace 0 with modem index from -L)
+mmcli -m 0
+
+# Send a test SMS manually
+mmcli -m 0 --messaging-create-sms="number=+31612345678,text=Test from MYXON"
+# Copy the returned dbus path (e.g. /org/freedesktop/ModemManager1/SMS/0)
+mmcli -s /org/freedesktop/ModemManager1/SMS/0 --send
+
+# Check SIM and signal
+mmcli -m 0 --signal-get
+```
+
+::: tip Huawei HiLink modems (E3372 and similar)
+These modems expose a **built-in router** over USB Ethernet — they do NOT appear as a
+`/dev/ttyUSB*` device and are NOT managed by ModemManager. They work automatically as
+a second Ethernet interface. `MYXON_MODEM_PORT` should be left empty; SMS is not
+available through HiLink modems. Use a Quectel EC25 or Sierra Wireless modem for
+SMS + data on the same device.
+:::

@@ -156,6 +156,81 @@ The router setup is **idempotent** — you can safely re-run `install.sh --lan-i
 after a reboot or when adding a new device. iptables rules are checked before adding.
 :::
 
+## 4G WAN failover — backup internet via USB modem
+
+If the Orange Pi has a USB 4G modem connected, the installer can configure it as an
+**automatic backup WAN** — the same failover role as IXON's built-in LTE slot.
+
+```
+Internet ──── eth0 (primary WAN, metric 100)
+                    Orange Pi
+USB 4G modem ── wwan0 (backup WAN, metric 200) ← activates when eth0 drops
+```
+
+NetworkManager automatically promotes `wwan0`'s default route when `eth0` loses carrier —
+no custom scripts or reboot needed.
+
+### Install command
+
+```bash
+sudo bash install.sh \
+    --code A3F1-B2E4-C9D7-0F56 \
+    --server https://myxon.yourcompany.com \
+    --backup-modem /dev/ttyUSB0
+```
+
+### Combined router + 4G failover
+
+For the full setup (Orange Pi as LAN gateway **and** 4G backup):
+
+```bash
+sudo bash install.sh \
+    --code A3F1-B2E4-C9D7-0F56 \
+    --server https://myxon.yourcompany.com \
+    --lan-iface eth1 \
+    --backup-modem /dev/ttyUSB0
+```
+
+### What it configures
+
+| Component | Result |
+|-----------|--------|
+| `ModemManager` + `NetworkManager` | Installed, enabled |
+| `myxon-wan-primary` (NM connection) | eth0, DHCP, metric 100 |
+| `myxon-wan-4g` (NM connection) | wwan0, GSM/APN, metric 200 |
+| `myxon-wan-monitor.service` | Logs failover events to journal |
+
+### Verify failover
+
+```bash
+# Current active WAN interface
+nmcli device status
+
+# Real-time failover log
+journalctl -t myxon-wan -f
+
+# Force failover test (disconnect eth0, check route)
+ip link set eth0 down
+ip route show default    # should show wwan0
+```
+
+### Setting the APN
+
+The default APN is `internet`. Most carriers in Europe use this.
+If your operator requires a different APN:
+
+```bash
+nmcli connection modify myxon-wan-4g gsm.apn <your-operator-apn>
+nmcli connection up myxon-wan-4g
+```
+
+::: tip Huawei HiLink modems
+Huawei E3372 and similar **HiLink** modems expose a built-in router via USB Ethernet
+(`192.168.8.1`). They appear as a regular Ethernet adapter — not a GSM modem.
+For these, **do not** use `--backup-modem`. Instead, plug them in — NetworkManager
+will detect them as a second Ethernet WAN automatically.
+:::
+
 ## Silent / non-interactive install
 
 For factory imaging or cloud-init scripts:

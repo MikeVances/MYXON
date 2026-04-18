@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import access_policies, activation_codes, agent, alarms, audit, auth, devices, frps_auth, site_access, sites, vendors, ws_remote, ws_vnc
+from app.api import access_policies, activation_codes, agent, alarms, audit, auth, devices, frps_auth, notifications, site_access, sites, vendors, ws_remote, ws_vnc
 from app.core.config import settings
 from app.core.database import engine, Base
 
@@ -19,6 +19,7 @@ import app.models.invite  # noqa: F401
 import app.models.access_policy  # noqa: F401
 import app.models.user_site_access  # noqa: F401
 import app.models.activation_code  # noqa: F401
+import app.models.notification     # noqa: F401
 
 
 @asynccontextmanager
@@ -77,6 +78,7 @@ app.include_router(site_access.router)
 app.include_router(frps_auth.router)
 app.include_router(activation_codes.router)
 app.include_router(ws_vnc.router)
+app.include_router(notifications.router)
 
 
 @app.get("/health")

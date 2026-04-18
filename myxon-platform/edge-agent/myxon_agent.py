@@ -22,9 +22,9 @@ import json
 import logging
 import os
 import platform
+import random
 import signal
 import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -98,7 +98,190 @@ SCAN_MODE = os.environ.get("MYXON_SCAN_MODE", "auto").lower()
 # Example: MYXON_LAN_IFACE=eth1  (USB Ethernet adapter connected to industrial switch)
 LAN_IFACE = os.environ.get("MYXON_LAN_IFACE", "").strip()
 
+# GSM modem for local SMS delivery.
+# When set, the agent sends SMS from heartbeat response via mmcli (ModemManager CLI).
+# If mmcli is unavailable, falls back to raw AT commands on this serial port.
+# Example: MYXON_MODEM_PORT=/dev/ttyUSB0
+MODEM_PORT = os.environ.get("MYXON_MODEM_PORT", "").strip()
+
 FRPC_PID_FILE = Path("/tmp/myxon_frpc.pid")
+
+
+# ── Retry / backoff helpers ────────────────────────────────────────────────────
+
+async def _backoff_delay(attempt: int, base: float = 5.0, cap: float = 300.0) -> float:
+    """
+    Exponential backoff with ±20% jitter. Returns the actual delay used.
+
+    Sequence: 5s → 10s → 20s → 40s → 80s → 160s → 300s (cap) → 300s …
+    Jitter prevents thundering-herd when many devices restart simultaneously
+    (e.g. after a power outage at the farm).
+    """
+    delay = min(base * (2 ** attempt), cap)
+    jitter = delay * random.uniform(-0.2, 0.2)
+    actual = max(1.0, delay + jitter)
+    await asyncio.sleep(actual)
+    return actual
+
+
+async def send_sms(number: str, message: str) -> bool:
+    """
+    Send an SMS via the local GSM modem.
+
+    Strategy:
+      1. Try mmcli (ModemManager CLI) — works when MM owns the modem for 4G WAN.
+         MM multiplexes SMS and data on the same modem without conflicts.
+      2. Fall back to raw AT commands via the serial port (MYXON_MODEM_PORT).
+         Only safe when ModemManager is NOT running (e.g. SMS-only modem).
+
+    Returns True if sent successfully, False on error.
+    """
+    if not MODEM_PORT and not _mmcli_available():
+        log.debug("SMS skipped: no modem configured (set MYXON_MODEM_PORT)")
+        return False
+
+    log.info("SMS → %s: %s", number, message[:40] + ("…" if len(message) > 40 else ""))
+
+    # ── Strategy 1: mmcli ──────────────────────────────────────────────────────
+    if _mmcli_available():
+        return await _send_sms_mmcli(number, message)
+
+    # ── Strategy 2: AT commands via serial port ────────────────────────────────
+    return await _send_sms_at(number, message)
+
+
+def _mmcli_available() -> bool:
+    """Check if mmcli is installed and ModemManager has at least one modem."""
+    try:
+        result = subprocess.run(
+            ["mmcli", "-L"],
+            capture_output=True, text=True, timeout=5
+        )
+        # mmcli -L returns "No modems were found" or a list
+        return result.returncode == 0 and "No modems" not in result.stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+async def _send_sms_mmcli(number: str, message: str) -> bool:
+    """
+    Send SMS via ModemManager CLI.
+
+    mmcli -m 0 --messaging-create-sms="number=+316...,text=Hello"
+    → returns dbus path, then:
+    mmcli -s /org/freedesktop/ModemManager1/SMS/0 --send
+    """
+    loop = asyncio.get_event_loop()
+
+    def _run_mmcli(args: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["mmcli"] + args,
+            capture_output=True, text=True, timeout=30
+        )
+
+    try:
+        # Step 1: create SMS object
+        create_result = await loop.run_in_executor(
+            None,
+            lambda: _run_mmcli(["-m", "0", f'--messaging-create-sms=number={number},text={message}'])
+        )
+        if create_result.returncode != 0:
+            log.error("mmcli create-sms failed: %s", create_result.stderr.strip())
+            return False
+
+        # Parse dbus path from output:  "/org/freedesktop/ModemManager1/SMS/N"
+        sms_path = None
+        for line in create_result.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("/org/freedesktop/ModemManager1/SMS/"):
+                sms_path = line
+                break
+
+        if not sms_path:
+            log.error("mmcli: could not parse SMS dbus path from: %s", create_result.stdout)
+            return False
+
+        # Step 2: send it
+        send_result = await loop.run_in_executor(
+            None,
+            lambda: _run_mmcli(["-s", sms_path, "--send"])
+        )
+        if send_result.returncode != 0:
+            log.error("mmcli send failed: %s", send_result.stderr.strip())
+            return False
+
+        log.info("SMS sent via mmcli → %s", number)
+        return True
+
+    except subprocess.TimeoutExpired:
+        log.error("mmcli timeout sending SMS to %s", number)
+        return False
+    except Exception as exc:
+        log.error("mmcli SMS error: %s", exc)
+        return False
+
+
+async def _send_sms_at(number: str, message: str) -> bool:
+    """
+    Send SMS via raw AT commands on the serial port.
+
+    Only use when ModemManager is NOT running — MM must not own the port.
+    Requires: MYXON_MODEM_PORT set (e.g. /dev/ttyUSB0).
+
+    AT command sequence:
+      AT+CMGF=1        → set text mode
+      AT+CMGS="+N"     → start message to number
+      <text>\x1A       → message body + Ctrl-Z to send
+    """
+    if not MODEM_PORT:
+        log.warning("SMS AT fallback: MYXON_MODEM_PORT not set")
+        return False
+
+    loop = asyncio.get_event_loop()
+
+    def _do_at_sms() -> bool:
+        import serial  # type: ignore  # optional dependency
+        try:
+            with serial.Serial(MODEM_PORT, baudrate=115200, timeout=5) as port:
+                def at(cmd: bytes, delay: float = 0.5) -> bytes:
+                    port.write(cmd + b"\r\n")
+                    import time; time.sleep(delay)
+                    return port.read(port.in_waiting)
+
+                at(b"AT")                          # ping modem
+                at(b"AT+CMGF=1")                   # text mode
+                at(f'AT+CMGS="{number}"'.encode())  # destination number
+                # Send message body + Ctrl-Z
+                port.write(message.encode("utf-8", errors="replace") + b"\x1a")
+                import time; time.sleep(4)         # modem needs time to transmit
+                resp = port.read(port.in_waiting)
+                if b"+CMGS:" in resp:
+                    log.info("SMS sent via AT → %s", number)
+                    return True
+                log.error("AT SMS: unexpected response: %s", resp)
+                return False
+        except Exception as exc:
+            log.error("AT SMS error on %s: %s", MODEM_PORT, exc)
+            return False
+
+    return await loop.run_in_executor(None, _do_at_sms)
+
+
+async def _retry_until_success(coro_factory, *, label: str, base: float = 5.0, cap: float = 300.0):
+    """
+    Call coro_factory() repeatedly until it returns a truthy result.
+    Uses exponential backoff between attempts. Never gives up.
+
+    coro_factory must be a zero-argument async callable returning the result.
+    """
+    attempt = 0
+    while True:
+        result = await coro_factory()
+        if result:
+            return result
+        delay = await _backoff_delay(attempt, base=base, cap=cap)
+        log.warning("%s: attempt %d failed — retrying in %.0fs", label, attempt + 1, delay)
+        attempt += 1
 
 
 def _load_token() -> str | None:
@@ -646,8 +829,17 @@ def stop_frpc(proc: subprocess.Popen | None):
 # ── Heartbeat ──────────────────────────────────────────────────────────────────
 
 async def heartbeat_loop(client: httpx.AsyncClient, dev_id: str):
+    """
+    Send periodic heartbeats to the cloud server.
+
+    Tracks consecutive failures to escalate log level from WARNING → ERROR
+    after 3 missed beats (~45s with 15s interval). The loop never exits —
+    it waits for connectivity to come back. systemd handles service restart
+    only on unhandled exceptions.
+    """
     global running
     boot_time = datetime.now(timezone.utc)
+    consecutive_failures = 0
 
     while running:
         uptime = int((datetime.now(timezone.utc) - boot_time).total_seconds())
@@ -664,6 +856,9 @@ async def heartbeat_loop(client: httpx.AsyncClient, dev_id: str):
                 },
             )
             if resp.status_code == 200:
+                if consecutive_failures > 0:
+                    log.info("Heartbeat restored after %d failure(s)", consecutive_failures)
+                consecutive_failures = 0
                 log.debug("Heartbeat OK (uptime %ds)", uptime)
                 # Write timestamp for Local API /status endpoint
                 try:
@@ -672,10 +867,30 @@ async def heartbeat_loop(client: httpx.AsyncClient, dev_id: str):
                     )
                 except OSError:
                     pass
+                # Process SMS notifications queued by the server.
+                # Server includes these when a new alarm needs GSM notification.
+                data = resp.json()
+                pending_sms = data.get("pending_sms", [])
+                if pending_sms:
+                    log.info("Received %d pending SMS from server", len(pending_sms))
+                    for sms in pending_sms:
+                        await send_sms(sms.get("to", ""), sms.get("message", ""))
             else:
-                log.warning("Heartbeat: %d", resp.status_code)
+                consecutive_failures += 1
+                log.warning("Heartbeat HTTP %d (failure #%d)", resp.status_code, consecutive_failures)
         except httpx.RequestError as e:
-            log.warning("Heartbeat failed: %s", e)
+            consecutive_failures += 1
+            if consecutive_failures <= 3:
+                log.warning("Heartbeat failed (failure #%d): %s", consecutive_failures, e)
+            elif consecutive_failures % 10 == 0:
+                # Only log every 10 failures after the first 3 to avoid log spam
+                # during prolonged server unavailability (e.g. 4G dropout)
+                log.error(
+                    "Server unreachable for ~%ds (failure #%d). "
+                    "Agent running in local-only mode.",
+                    consecutive_failures * HEARTBEAT_INTERVAL,
+                    consecutive_failures,
+                )
 
         await asyncio.sleep(HEARTBEAT_INTERVAL)
 
@@ -724,45 +939,47 @@ async def main():
             log.info("Restored device identity: serial=%s", SERIAL_NUMBER)
             log.info("Using /register flow (state file found)")
 
-            for attempt in range(1, 11):
-                device_id, tunnel_config = await register(client, resources)
-                if device_id:
-                    break
-                log.info("Retry %d/10 in 5s...", attempt)
-                await asyncio.sleep(5)
+            async def _try_register():
+                did, tc = await register(client, resources)
+                return (did, tc) if did else None
+
+            device_id, tunnel_config = await _retry_until_success(
+                _try_register, label="register"
+            )
 
         elif ACTIVATION_CODE:
             # ── Flow B: First boot with activation code ────────────────────────
+            # Activation codes are one-time-use. We stop retrying on permanent
+            # errors (409 Conflict = already used, 410 Gone = expired/revoked).
             log.info("Activation code present — using /activate flow")
             log.info("  code : %s", ACTIVATION_CODE[:4] + "-****-****-****")  # Mask for logs
 
-            for attempt in range(1, 11):
+            async def _try_activate():
                 dev_id, serial, tc = await activate(client, resources, ACTIVATION_CODE)
                 if dev_id:
-                    device_id     = dev_id
-                    tunnel_config = tc
                     # Persist identity so next reboot uses Flow A
                     _save_device_state(dev_id, serial, _agent_token or "")
-                    break
-                # Don't retry 409/410 — those are permanent failures
-                log.info("Retry %d/10 in 5s...", attempt)
-                await asyncio.sleep(5)
+                    return (dev_id, tc)
+                return None
+
+            device_id, tunnel_config = await _retry_until_success(
+                _try_activate, label="activate"
+            )
 
         else:
             # ── Flow C: Legacy pre-registered serial flow ──────────────────────
             log.info("  serial : %s", SERIAL_NUMBER)
             log.info("Using legacy /register flow (MYXON_SERIAL)")
 
-            for attempt in range(1, 11):
-                device_id, tunnel_config = await register(client, resources)
-                if device_id:
-                    break
-                log.info("Retry %d/10 in 5s...", attempt)
-                await asyncio.sleep(5)
+            async def _try_register_legacy():
+                did, tc = await register(client, resources)
+                return (did, tc) if did else None
 
-        if not device_id:
-            log.error("Could not register after 10 attempts. Exiting.")
-            sys.exit(1)
+            device_id, tunnel_config = await _retry_until_success(
+                _try_register_legacy, label="register (legacy)"
+            )
+
+        # At this point device_id is always set — _retry_until_success never returns None
 
         # ── Step 3: Start tunnel ──────────────────────────────────────────────
         if tunnel_config and tunnel_config.get("assigned_port") and resources:

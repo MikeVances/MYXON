@@ -52,3 +52,13 @@ The alarm panel shows all severities by default. If your access policy has a **s
 ## Alarm history
 
 The alarm panel on the device dashboard shows the **current and recent** alarms. For historical alarm data and cross-device reporting, the audit log provides a full event trail.
+
+## Notifications
+
+MYXON can automatically notify your team when an alarm fires — by **email** or **SMS via GSM modem** — without anyone having to watch the dashboard.
+
+Notifications are configured in **Settings → Notifications**:
+- Add **contacts** (engineers, managers) with their phone and/or email
+- Add **rules** to define who gets notified for which devices and at which severity
+
+→ [Notification contacts & rules](/customer/notifications)

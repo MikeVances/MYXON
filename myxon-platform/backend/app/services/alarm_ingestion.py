@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.alarm import Alarm, AlarmSeverity, AlarmState
 from app.models.audit import AuditEvent
 from app.models.device import Device
+from app.services.notifications import route_alarm_notifications
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,12 @@ async def ingest_alarm(
         "Alarm created: device=%s code=%d severity=%s category=%s",
         device.serial_number, code, severity, category,
     )
+
+    # Route notifications (email now, SMS queued for next heartbeat).
+    # Fire-and-forget: all errors logged inside route_alarm_notifications, never raised.
+    if alarm.state == AlarmState.ACTIVE:
+        await route_alarm_notifications(db, device, alarm)
+
     return alarm
 
 

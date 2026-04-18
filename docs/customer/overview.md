@@ -12,6 +12,7 @@ After logging in, you land on the **Locations** page. The main sections are:
 | Devices | `/devices` | Full device list with filtering by site |
 | Device Dashboard | `/devices/{id}` | Individual device detail, HMI, alarms, event log |
 | Activate Device | `/claim` | Claim a new device by serial or QR code |
+| Notifications | `/notifications` | Alarm notification contacts and routing rules (admin only) |
 
 > **Screenshot:** *Locations page showing two farm sites: "Stable A" (3 devices) and "Greenhouse 1" (1 device). Search bar at top. Each site card shows address and device count.*
 
@@ -39,7 +40,7 @@ Customer accounts have four roles:
 
 | Role | Can do |
 |------|--------|
-| **Admin** | Everything + manage users and access policies |
+| **Admin** | Everything + manage users, access policies, and notification rules |
 | **Engineer** | Open HMI/VNC sessions, view and acknowledge alarms |
 | **Viewer** | View alarms only (read-only) |
 
