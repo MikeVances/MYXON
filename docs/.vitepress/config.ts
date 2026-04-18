@@ -5,8 +5,9 @@ export default defineConfig({
   description: 'Remote access and monitoring platform for agricultural automation systems',
   lang: 'en-US',
 
-  // base: '/MYXON/',  ← uncomment if deploying to GitHub Pages (project repo)
-  // For Netlify / Vercel / custom domain — keep base at '/' (default)
+  // GitHub Pages project repo → assets served under /MYXON/
+  // Remove this line if using a custom domain or Netlify/Vercel
+  base: '/MYXON/',
 
   head: [
     ['meta', { name: 'theme-color', content: '#1d4ed8' }],
