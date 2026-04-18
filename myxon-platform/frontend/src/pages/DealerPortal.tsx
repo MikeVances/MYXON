@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import QRCode from 'react-qr-code'
 import { dealerApi, authApi } from '../api/client'
 
 type Tab = 'devices' | 'customers'
@@ -71,7 +72,8 @@ export default function DealerPortal() {
   const [newModel, setNewModel] = useState('')
   const [registering, setRegistering] = useState(false)
   const [regError, setRegError] = useState('')
-  const [regSuccess, setRegSuccess] = useState('')
+  // SN только что зарегистрированного устройства — показываем QR
+  const [qrSerial, setQrSerial] = useState<string | null>(null)
 
   // Customers tab state
   const [inviteEmail, setInviteEmail] = useState('')
@@ -101,10 +103,11 @@ export default function DealerPortal() {
     if (!newSerial.trim()) { setRegError('Serial number is required'); return }
     setRegistering(true)
     setRegError('')
-    setRegSuccess('')
+    setQrSerial(null)
     try {
-      await dealerApi.registerDevice(newSerial.trim(), newModel.trim() || undefined)
-      setRegSuccess(`Device ${newSerial.trim()} registered successfully.`)
+      const sn = newSerial.trim()
+      await dealerApi.registerDevice(sn, newModel.trim() || undefined)
+      setQrSerial(sn)   // показываем QR для только что зарегистрированного SN
       setNewSerial('')
       setNewModel('')
       loadDevices()
@@ -223,13 +226,54 @@ export default function DealerPortal() {
               {regError && (
                 <p className="mt-2 text-red-600 text-xs">{regError}</p>
               )}
-              {regSuccess && (
-                <p className="mt-2 text-green-600 text-xs">{regSuccess}</p>
-              )}
               <p className="mt-3 text-xs text-slate-400">
-                After registering, send the device to the customer. They activate it by entering the serial number.
+                After registering, print the QR code and attach it to the device. Customer scans it to activate.
               </p>
             </div>
+
+            {/* QR-код появляется сразу после регистрации */}
+            {qrSerial && (
+              <div className="bg-white rounded-lg border border-green-200 p-5">
+                <div className="flex items-start gap-5">
+                  {/* QR */}
+                  <div className="flex-shrink-0 bg-white p-3 border border-slate-200 rounded-lg" id="qr-print-area">
+                    <QRCode
+                      value={`${window.location.origin}/claim?sn=${qrSerial}`}
+                      size={140}
+                      level="M"
+                    />
+                    <p className="text-center font-mono text-xs text-slate-600 mt-2 tracking-wider">{qrSerial}</p>
+                  </div>
+
+                  {/* Описание и кнопки */}
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold text-green-700">Device registered!</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        QR code leads to:<br />
+                        <span className="font-mono text-slate-400 break-all">
+                          {window.location.origin}/claim?sn={qrSerial}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => window.print()}
+                        className="w-full border border-slate-300 text-slate-700 py-1.5 rounded text-xs font-medium hover:bg-slate-50 transition"
+                      >
+                        Print QR Label
+                      </button>
+                      <button
+                        onClick={() => setQrSerial(null)}
+                        className="w-full text-slate-400 py-1 text-xs hover:text-slate-600 transition"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Device list */}
             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">

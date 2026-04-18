@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { devicesApi, sitesApi } from '../api/client'
 
 type Step = 'input' | 'preview' | 'site' | 'done'
@@ -25,6 +25,7 @@ interface Site {
 
 export default function ClaimWizard() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [step, setStep] = useState<Step>('input')
   const [serial, setSerial] = useState('')
   const [preview, setPreview] = useState<ClaimPreview | null>(null)
@@ -37,6 +38,32 @@ export default function ClaimWizard() {
   useEffect(() => {
     sitesApi.list().then((r) => setSites(r.data)).catch(() => {})
   }, [])
+
+  // QR-воркфлоу: если ?sn= передан в URL — предзаполнить и сразу запустить preview
+  useEffect(() => {
+    const snFromUrl = searchParams.get('sn')
+    if (snFromUrl && step === 'input') {
+      const normalized = snFromUrl.toUpperCase()
+      setSerial(normalized)
+      // Сразу вызываем preview без ожидания нажатия кнопки
+      setLoading(true)
+      setError('')
+      devicesApi.claimPreview(normalized)
+        .then(({ data }) => {
+          setPreview(data)
+          setStep('preview')
+        })
+        .catch((err: unknown) => {
+          const msg =
+            err && typeof err === 'object' && 'response' in err
+              ? (err as { response: { data: { detail: string } } }).response?.data?.detail
+              : 'Device not found'
+          setError(msg || 'Device not found')
+        })
+        .finally(() => setLoading(false))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   const handlePreview = async () => {
     if (!serial.trim()) {

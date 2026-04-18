@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { authApi } from '../api/client'
 
 export default function LoginPage() {
@@ -8,6 +8,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -18,7 +19,9 @@ export default function LoginPage() {
       const { data } = await authApi.login(email, password)
       localStorage.setItem('access_token', data.access_token)
       localStorage.setItem('refresh_token', data.refresh_token)
-      navigate('/locations')
+      // Если пришли через QR-ссылку — вернуться на исходный путь (напр. /claim?sn=...)
+      const redirect = searchParams.get('redirect')
+      navigate(redirect ? decodeURIComponent(redirect) : '/locations', { replace: true })
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Login failed')
     } finally {

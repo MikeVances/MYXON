@@ -12,7 +12,11 @@ import { getStoredUserRole, isAdminRole } from './api/client'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('access_token')
-  if (!token) return <Navigate to="/login" replace />
+  if (!token) {
+    // Сохраняем текущий путь чтобы вернуться после логина (нужно для QR claim-ссылок)
+    const redirect = encodeURIComponent(window.location.pathname + window.location.search)
+    return <Navigate to={`/login?redirect=${redirect}`} replace />
+  }
   return <>{children}</>
 }
 
