@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { devicesApi, auditApi, accessPoliciesApi } from '../api/client'
 import type { AccessPolicy } from '../api/client'
-import { RefreshCw, ChevronLeft, CircleDot, ShieldAlert } from 'lucide-react'
+import { RefreshCw, ChevronLeft, CircleDot, ShieldAlert, MonitorPlay, X } from 'lucide-react'
 import HmiScreenViewer from '../components/HmiScreenViewer'
+import VncViewer from '../components/VncViewer'
 import AlarmPanel from '../components/AlarmPanel'
 import type { DeviceFamily } from '../lib/screen-decoders'
 
@@ -55,6 +56,7 @@ export default function DeviceDashboard() {
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState('')
+  const [vncActive, setVncActive] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -309,6 +311,45 @@ export default function DeviceDashboard() {
                   scale={3}
                   refreshMs={250}
                 />
+              </section>
+            )}
+
+          {/* VNC viewer — shown when VNC resource is present and access is allowed */}
+          {canVnc &&
+            device.status === 'online' &&
+            resources.some((r) => r.protocol === 'vnc') && (
+              <section className="rounded-lg border border-slate-300 bg-white p-4 xl:col-span-8">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">VNC Access</h3>
+                  {vncActive ? (
+                    <button
+                      onClick={() => setVncActive(false)}
+                      className="flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                    >
+                      <X size={12} /> Disconnect
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setVncActive(true)}
+                      className="flex items-center gap-1 rounded bg-myxon-600 px-3 py-1.5 text-sm text-white hover:bg-myxon-700"
+                    >
+                      <MonitorPlay size={14} /> Connect VNC
+                    </button>
+                  )}
+                </div>
+
+                {vncActive ? (
+                  <VncViewer
+                    deviceId={device.id}
+                    token={localStorage.getItem('access_token') ?? ''}
+                    onClose={() => setVncActive(false)}
+                  />
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    Click <strong>Connect VNC</strong> to open an interactive VNC session
+                    in this panel. Mouse and keyboard are forwarded to the device.
+                  </p>
+                )}
               </section>
             )}
 

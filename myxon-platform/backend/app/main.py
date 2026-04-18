@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import access_policies, activation_codes, agent, alarms, audit, auth, devices, frps_auth, site_access, sites, vendors, ws_remote
+from app.api import access_policies, activation_codes, agent, alarms, audit, auth, devices, frps_auth, site_access, sites, vendors, ws_remote, ws_vnc
 from app.core.config import settings
 from app.core.database import engine, Base
 
@@ -76,6 +76,7 @@ app.include_router(access_policies.router)
 app.include_router(site_access.router)
 app.include_router(frps_auth.router)
 app.include_router(activation_codes.router)
+app.include_router(ws_vnc.router)
 
 
 @app.get("/health")
