@@ -48,9 +48,38 @@ Subnets larger than `/24` (more than 256 hosts) are skipped automatically. If yo
 
 The agent re-scans the LAN every `MYXON_DISCOVERY_INTERVAL` seconds (default: 60). If new controllers appear, it re-registers with the updated resource list and restarts the frpc tunnel.
 
+## Router mode — Orange Pi as gateway
+
+When Orange Pi has a **USB Ethernet adapter** connected to a dedicated industrial switch,
+it can act as a full DHCP router — the same role as IXON's IXrouter.
+
+```
+Internet ──── eth0 (DHCP from uplink)
+                    Orange Pi
+USB Ethernet ── eth1 ──── switch ──── PLC 192.168.10.101
+  (adapter)    (192.168.10.1)    └─── HMI 192.168.10.102
+                                 └─── VNC 192.168.10.103
+```
+
+The `--lan-iface` flag in `install.sh` handles the full configuration:
+
+| What | Result |
+|------|--------|
+| `eth1` static IP | `192.168.10.1/24` |
+| dnsmasq | DHCP leases `.100`–`.200` on `eth1` only |
+| sysctl | `ip_forward=1` persistent |
+| iptables | NAT masquerade `eth1 → eth0` |
+| `MYXON_LAN_IFACE` | Agent scans **only** `eth1` — never WAN subnet |
+
+When `MYXON_LAN_IFACE` is set, it overrides `SCAN_MODE` entirely.
+The agent logs: `Discovery: explicit LAN interface eth1 → 192.168.10.0/24`
+
 ## Scan mode decision guide
 
 ```
+Q: Using --lan-iface / MYXON_LAN_IFACE (router mode)?
+   YES → set automatically to lan-only, MYXON_LAN_IFACE controls exact interface.
+
 Q: Does your Orange Pi have TWO ethernet ports?
    (one goes to WAN/internet, one goes to farm LAN)
 

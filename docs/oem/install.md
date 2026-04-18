@@ -85,6 +85,77 @@ Expected output:
 }
 ```
 
+## Router mode — Orange Pi as LAN gateway
+
+If your Orange Pi has a **USB Ethernet adapter** connected to an industrial switch,
+you can make it act as a full DHCP router for the PLC/HMI network.
+This is the same role that IXrouter plays in IXON deployments.
+
+```
+Internet ──── eth0 (DHCP from ISP/uplink)
+                      Orange Pi
+USB adapter ── eth1 ──── switch ──── PLC / HMI / VNC devices
+                      (192.168.10.1/24)
+```
+
+### What it configures
+
+| Component | What happens |
+|-----------|-------------|
+| `eth1` static IP | `192.168.10.1/24` (configurable via `--lan-ip`) |
+| dnsmasq DHCP | Devices get `.100`–`.200`, gateway `192.168.10.1`, DNS `8.8.8.8` |
+| IP forwarding | `sysctl net.ipv4.ip_forward=1` (persistent) |
+| iptables NAT | PLCs can reach internet through Orange Pi |
+| `MYXON_SCAN_MODE` | Automatically set to `lan-only` — agent only scans `eth1` |
+
+### Install command
+
+```bash
+sudo bash install.sh \
+    --code A3F1-B2E4-C9D7-0F56 \
+    --server https://myxon.yourcompany.com \
+    --lan-iface eth1
+```
+
+Custom gateway IP (if `192.168.10.1` conflicts with your existing network):
+
+```bash
+sudo bash install.sh \
+    --code A3F1-B2E4-C9D7-0F56 \
+    --server https://myxon.yourcompany.com \
+    --lan-iface eth1 \
+    --lan-ip 10.20.0.1
+```
+
+### Finding your USB adapter name
+
+USB Ethernet adapters on Debian appear as `enxXXXXXXXXXXXX` (MAC-based) or `eth1`:
+
+```bash
+ip link show
+# Look for: enx001122334455 or eth1 — the one that is DOWN or has no IP
+```
+
+### Verify router setup
+
+After install, confirm devices on the switch get DHCP leases:
+
+```bash
+# DHCP leases
+cat /var/lib/misc/dnsmasq.leases
+
+# Routing table
+ip route show
+
+# NAT rules
+iptables -t nat -L POSTROUTING -n -v
+```
+
+::: tip Re-running install
+The router setup is **idempotent** — you can safely re-run `install.sh --lan-iface eth1`
+after a reboot or when adding a new device. iptables rules are checked before adding.
+:::
+
 ## Silent / non-interactive install
 
 For factory imaging or cloud-init scripts:

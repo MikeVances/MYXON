@@ -92,6 +92,12 @@ TOKEN_FILE = Path(os.environ.get("MYXON_TOKEN_FILE", "/etc/myxon/agent_token"))
 #   all       — scan ALL interfaces incl. WAN (for single-NIC farm LAN, explicit)
 SCAN_MODE = os.environ.get("MYXON_SCAN_MODE", "auto").lower()
 
+# Explicit LAN interface override — set by install.sh when Orange Pi is configured
+# as a DHCP router/gateway (--lan-iface flag). When set, the agent scans ONLY
+# this interface, bypassing auto-detection and SCAN_MODE entirely.
+# Example: MYXON_LAN_IFACE=eth1  (USB Ethernet adapter connected to industrial switch)
+LAN_IFACE = os.environ.get("MYXON_LAN_IFACE", "").strip()
+
 FRPC_PID_FILE = Path("/tmp/myxon_frpc.pid")
 
 
@@ -241,6 +247,22 @@ def _get_lan_subnets() -> list[tuple[str, str]]:
 
     Returns list of (interface_name, subnet_cidr).
     """
+    # Explicit interface override — highest priority, set by install.sh router mode.
+    # When LAN_IFACE is set we scan ONLY that interface regardless of SCAN_MODE.
+    if LAN_IFACE:
+        all_subnets = _get_iface_subnets(include_wan=True, wan_iface=None)
+        filtered = [(iface, net) for iface, net in all_subnets if iface == LAN_IFACE]
+        if filtered:
+            log.info("Discovery: explicit LAN interface %s → %s",
+                     LAN_IFACE, [s[1] for s in filtered])
+            return filtered
+        log.warning(
+            "Discovery: MYXON_LAN_IFACE=%s not found among interfaces %s — "
+            "is the USB adapter connected?",
+            LAN_IFACE, [s[0] for s in all_subnets],
+        )
+        return []
+
     wan_iface = _get_default_route_iface()
 
     if SCAN_MODE == "all":
