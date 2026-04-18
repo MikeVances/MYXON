@@ -1,0 +1,15 @@
+{
+  "name": "myxon-docs",
+  "version": "1.0.0",
+  "description": "MYXON Platform documentation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev",
+    "docs:build": "vitepress build",
+    "docs:preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.3.4"
+  }
+}
