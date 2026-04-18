@@ -5,6 +5,10 @@ export default defineConfig({
   description: 'Remote access and monitoring platform for agricultural automation systems',
   lang: 'en-US',
 
+  // GitHub Pages serves project repos under /REPO_NAME/
+  // Change to '/' if you use a custom domain (e.g. docs.myxon.io)
+  base: '/MYXON/',
+
   head: [
     ['meta', { name: 'theme-color', content: '#1d4ed8' }],
     ['meta', { property: 'og:type', content: 'website' }],
