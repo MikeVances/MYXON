@@ -1,0 +1,13 @@
+[build]
+  base    = "docs"
+  command = "npm run docs:build"
+  publish = ".vitepress/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Redirect all routes to index.html for SPA-style navigation
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
