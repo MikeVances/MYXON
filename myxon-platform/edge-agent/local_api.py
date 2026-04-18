@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MYXON Local Agent API — аналог IXrouter3 /ubus.
+MYXON Local Agent API — REST API на борту Orange Pi, доступен по LAN без облака.
 
 Запускается на Orange Pi и доступен по LAN без облака.
 Порт: 8765 (настраивается через LOCAL_API_PORT).

@@ -6,7 +6,7 @@ Create Date: 2026-04-05
 
 Changes:
 - New table: access_policies
-  Granular per-device permission set (IXON AccessCategory analogue).
+  Granular per-device permission set.
   Fields: name, description, tenant_id, allow_hmi, allow_vnc, allow_http,
           allow_alarms_view, allow_alarms_acknowledge, alarm_severity_filter,
           allow_audit_view, is_default

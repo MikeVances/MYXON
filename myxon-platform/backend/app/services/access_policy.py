@@ -8,8 +8,7 @@ Layer 3: AccessPolicy — DB-based granular permissions (HMI, VNC, alarms…)
 Layer 4: Device Scope — device is online + has the capability
 Layer 5: Company Flags — tenant-level feature flags
 
-AccessPolicy is the MYXON equivalent of IXON's AccessCategory.
-It is loaded by the caller from user_site_access.access_policy → AccessPolicy.
+AccessPolicy is loaded by the caller from user_site_access.access_policy → AccessPolicy.
 """
 from __future__ import annotations
 

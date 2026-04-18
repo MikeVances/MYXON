@@ -339,7 +339,6 @@ export default function AccessPolicyEditor() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-slate-500">
             Политики определяют что пользователь может делать на устройствах площадки.
-            Аналог AccessCategory в IXON.
           </p>
           <div className="flex gap-2">
             {policies.length === 0 && !loading && (

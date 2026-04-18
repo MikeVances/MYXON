@@ -4,8 +4,6 @@ AccessPolicy CRUD API.
 Позволяет customer_admin (и выше) создавать и управлять политиками доступа —
 гранулярными наборами разрешений, которые назначаются пользователям на площадки.
 
-Аналог AccessCategory в IXON.
-
 Routes:
   GET    /api/v0/access-policies        — список политик тенанта
   POST   /api/v0/access-policies        — создать политику
